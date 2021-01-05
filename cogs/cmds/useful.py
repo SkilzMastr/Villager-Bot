@@ -9,35 +9,65 @@ import arrow
 class Useful(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.d = self.bot.d
 
-        self.google_client = async_cse.Search(self.d.google_keys)
+        self.d = bot.d
 
-        self.db = self.bot.get_cog('Database')
+        self.google_client = async_cse.Search(bot.k.google)
+
+        self.db = bot.get_cog('Database')
 
     @commands.group(name='help')
     async def help(self, ctx):
-        stripped = ctx.message.content.replace(f'{ctx.prefix}help', '')
-
-        if len(stripped) > 0:
-            if stripped in [cmd.name for cmd in self.bot.commands]:
-                # this is for individual help commands
-                return
-
         if ctx.invoked_subcommand is None:
+            cmd = ctx.message.content.replace(f'{ctx.prefix}help ', '')
+
+            if cmd != '':
+                cmd_true = self.bot.get_command(cmd.lower())
+
+                if cmd_true is not None:
+                    all_help = {
+                        **ctx.l.help.econ,
+                        **ctx.l.help.mc,
+                        **ctx.l.help.util,
+                        **ctx.l.help.fun,
+                        **ctx.l.help.mod
+                    }
+
+                    help_text = all_help.get(str(cmd_true))
+
+                    if help_text is None:
+                        await self.bot.send(ctx, ctx.l.help.main.nodoc)
+                        return
+
+                    embed = discord.Embed(color=self.d.cc)
+
+                    embed.set_author(name=ctx.l.help.n.cmd, icon_url=self.d.splash_logo)
+                    embed.set_footer(text=ctx.l.misc.petus)
+
+                    embed.description = help_text.format(ctx.prefix)
+
+                    if len(cmd_true.aliases) > 0:
+                        embed.description += '\n\n' + ctx.l.help.main.aliases.format('`, `'.join(cmd_true.aliases))
+
+                    await ctx.send(embed=embed)
+
+                    return
+
             embed = discord.Embed(color=self.d.cc)
             embed.set_author(name=ctx.l.help.n.title, icon_url=self.d.splash_logo)
             embed.description = ctx.l.help.main.desc.format(self.d.support, self.d.topgg)
 
             p = ctx.prefix
 
-            embed.add_field(name=ctx.l.help.n.economy, value=f'`{p}help econ`')
-            embed.add_field(name=ctx.l.help.n.minecraft, value=f'`{p}help mc`')
-            embed.add_field(name=ctx.l.help.n.utility, value=f'`{p}help util`')
+            embed.add_field(name=(self.d.emojis.emerald_spinn + ctx.l.help.n.economy), value=f'`{p}help econ`')
+            embed.add_field(name=(self.d.emojis.bounce + ' ' + ctx.l.help.n.minecraft), value=f'`{p}help mc`')
+            embed.add_field(name=(self.d.emojis.anichest + ctx.l.help.n.utility), value=f'`{p}help util`')
 
-            embed.add_field(name=ctx.l.help.n.fun, value=f'`{p}help fun`')
-            embed.add_field(name=ctx.l.help.n.admin, value=f'`{p}help admin`')
-            embed.add_field(name=ctx.l.help.main.support, value=f'[**{ctx.l.help.main.clickme}**]({self.d.support})')
+            embed.add_field(name=(self.d.emojis.rainbow_shep + ctx.l.help.n.fun), value=f'`{p}help fun`')
+            embed.add_field(name=(self.d.emojis.netherite_sword + ctx.l.help.n.admin), value=f'`{p}help admin`')
+            embed.add_field(name=(self.d.emojis.heart_spin + ctx.l.help.main.support), value=f'[**{ctx.l.help.main.clickme}**]({self.d.support})')
+
+            embed.set_footer(text=ctx.l.misc.petus)
 
             await ctx.send(embed=embed)
 
@@ -48,7 +78,8 @@ class Useful(commands.Cog):
         embed.set_author(name=f'{ctx.l.help.n.title} [{ctx.l.help.n.economy}]', icon_url=self.d.splash_logo)
         embed.set_footer(text=ctx.l.misc.petus)
 
-        embed.description = ''.join(ctx.l.help.econ).format(ctx.prefix)
+        commands_formatted = '`, `'.join(list(ctx.l.help.econ))
+        embed.description = f'`{commands_formatted}`\n\n{ctx.l.help.main.howto.format(ctx.prefix)}'
 
         await ctx.send(embed=embed)
 
@@ -59,7 +90,8 @@ class Useful(commands.Cog):
         embed.set_author(name=f'{ctx.l.help.n.title} [{ctx.l.help.n.minecraft}]', icon_url=self.d.splash_logo)
         embed.set_footer(text=ctx.l.misc.petus)
 
-        embed.description = ''.join(ctx.l.help.mc).format(ctx.prefix)
+        commands_formatted = '`, `'.join(list(ctx.l.help.mc))
+        embed.description = f'`{commands_formatted}`\n\n{ctx.l.help.main.howto.format(ctx.prefix)}'
 
         await ctx.send(embed=embed)
 
@@ -70,9 +102,8 @@ class Useful(commands.Cog):
         embed.set_author(name=f'{ctx.l.help.n.title} [{ctx.l.help.n.utility}]', icon_url=self.d.splash_logo)
         embed.set_footer(text=ctx.l.misc.petus)
 
-        p = ctx.prefix
-
-        embed.description = ''.join(ctx.l.help.util).format(ctx.prefix)
+        commands_formatted = '`, `'.join(list(ctx.l.help.util))
+        embed.description = f'`{commands_formatted}`\n\n{ctx.l.help.main.howto.format(ctx.prefix)}'
 
         await ctx.send(embed=embed)
 
@@ -83,9 +114,8 @@ class Useful(commands.Cog):
         embed.set_author(name=f'{ctx.l.help.n.title} [{ctx.l.help.n.fun}]', icon_url=self.d.splash_logo)
         embed.set_footer(text=ctx.l.misc.petus)
 
-        p = ctx.prefix
-
-        embed.description = ''.join(ctx.l.help.fun).format(ctx.prefix)
+        commands_formatted = '`, `'.join(list(ctx.l.help.fun))
+        embed.description = f'`{commands_formatted}`\n\n{ctx.l.help.main.howto.format(ctx.prefix)}'
 
         await ctx.send(embed=embed)
 
@@ -96,25 +126,10 @@ class Useful(commands.Cog):
         embed.set_author(name=f'{ctx.l.help.n.title} [{ctx.l.help.n.admin}]', icon_url=self.d.splash_logo)
         embed.set_footer(text=ctx.l.misc.petus)
 
-        p = ctx.prefix
-
-        embed.description = ''.join(ctx.l.help.mod).format(ctx.prefix)
+        commands_formatted = '`, `'.join(list(ctx.l.help.mod))
+        embed.description = f'`{commands_formatted}`\n\n{ctx.l.help.main.howto.format(ctx.prefix)}'
 
         await ctx.send(embed=embed)
-
-    @commands.command(name='aliases')
-    async def show_aliases(self, ctx, command):
-        command = command.lower()
-        all_cmds = [[str(c), *[str(a) for a in c.aliases]] for c in self.bot.commands]
-
-        for alias_group in all_cmds:
-            if command in alias_group:
-                if len(alias_group) > 1:
-                    alias_group.pop(alias_group.index(command))
-                    await self.bot.send(ctx, ctx.l.useful.aliases.aliases.format(command, '`, `'.join(alias_group)))
-                    return
-
-        await self.bot.send(ctx, ctx.l.useful.aliases.none.format(command))
 
     @commands.command(name='ping', aliases=['pong', 'ding', 'dong', 'shing', 'shling', 'schlong'])
     async def ping_pong(self, ctx):
@@ -131,67 +146,21 @@ class Useful(commands.Cog):
         elif 'shing' in content or 'shling' in content:
             pp = 'Schlong'
         elif 'schlong' in content:
-            print(1)
             await self.bot.send(ctx, f'{self.d.emojis.aniheart} Magnum Dong! \uFEFF `69.00 ms`')
             return
 
         await self.bot.send(ctx, f'{self.d.emojis.aniheart} {pp} \uFEFF `{round(self.bot.latency*1000, 2)} ms`')
-
-    @commands.command(name='uptime', aliases=['isvillagerbotdown', 'isthebestbotintheworldoffline'])
-    async def uptime(self, ctx):
-        now = arrow.utcnow()
-        diff = now - self.d.start_time
-
-        days = diff.days
-        if days == 1:
-            dd = ctx.l.useful.uptime.day
-        else:
-            dd = ctx.l.useful.uptime.days
-
-        hours = int(diff.seconds / 3600)
-        if hours == 1:
-            hh = ctx.l.useful.uptime.hour
-        else:
-            hh = ctx.l.useful.uptime.hours
-
-        minutes = int(diff.seconds / 60) % 60
-        if minutes == 1:
-            mm = ctx.l.useful.uptime.minute
-        else:
-            mm = ctx.l.useful.uptime.minutes
-
-        await self.bot.send(ctx, ctx.l.useful.uptime.online_for.format(f'{days} {dd}, {hours} {hh}, {minutes} {mm}'))
-
-    @commands.command(name='info', aliases=['information'])
-    async def info(self, ctx):
-        embed = discord.Embed(color=self.d.cc)
-
-        embed.add_field(name=ctx.l.useful.info.lib, value='Discord.py')
-        embed.add_field(name=ctx.l.useful.info.prefix, value=ctx.prefix)
-        embed.add_field(name=ctx.l.useful.info.creator, value='Iapetus11#6821')
-
-        embed.add_field(name=ctx.l.useful.info.servers, value=str(len(self.bot.guilds)))
-        embed.add_field(name=ctx.l.useful.info.shards, value=str(self.bot.shard_count))
-        embed.add_field(name=ctx.l.useful.info.users, value=str(len(self.bot.users)))
-
-        embed.add_field(name=ctx.l.useful.info.more, value=f'{ctx.l.useful.info.click_here}]({self.d.topgg})')
-        embed.add_field(name=ctx.l.useful.info.website, value=f'[{ctx.l.useful.info.click_here}]({self.d.website})')
-        embed.add_field(name=ctx.l.useful.info.support, value=f'[{ctx.l.useful.info.click_here}]({self.d.support})')
-
-        embed.set_author(name=ctx.l.useful.info.title, icon_url=self.d.splash_logo)
-
-        await ctx.send(embed=embed)
 
     @commands.command(name='vote', aliases=['votelink', 'votelinks'])
     async def votelinks(self, ctx):
         embed = discord.Embed(color=self.d.cc)
         embed.set_author(name='Vote for Villager Bot!', icon_url=self.d.splash_logo)
 
-        embed.description = f'**[{ctx.l.useful.vote.click_1}]({self.d.topgg})**'
+        embed.description = f'**[{ctx.l.useful.vote.click_1}]({self.d.topgg + "/vote"})**'
 
         await ctx.send(embed=embed)
 
-    @commands.command(name='links', aliases=['invite', 'support', 'usefullinks', 'website'])
+    @commands.command(name='links', aliases=['invite', 'support', 'usefullinks', 'website', 'source'])
     async def useful_links(self, ctx):
         embed = discord.Embed(color=self.d.cc)
         embed.set_author(name='Useful Links', icon_url=self.d.splash_logo)
@@ -206,45 +175,48 @@ class Useful(commands.Cog):
 
     @commands.command(name='stats', aliases=['bs'])
     async def stats(self, ctx):
-        with ctx.typing():
-            uptime = (arrow.utcnow() - self.d.start_time)
-            uptime_seconds = uptime.seconds + (uptime.days * 24 * 3600)
+        await ctx.trigger_typing()
 
-            proc =  psutil.Process()
-            with proc.oneshot():
-                mem_usage = proc.memory_full_info().uss
-                threads = proc.num_threads()
-                proc.cpu_percent(interval=.1)
+        uptime_seconds = (arrow.utcnow() - self.d.start_time).total_seconds()
+        uptime = arrow.utcnow().shift(seconds=uptime_seconds).humanize(locale=ctx.l.lang, only_distance=True)
 
-            embed = discord.Embed(color=self.d.cc)
+        proc =  psutil.Process()
+        with proc.oneshot():
+            mem_usage = proc.memory_full_info().uss
+            threads = proc.num_threads()
+            proc.cpu_percent(interval=.1)
 
-            embed.set_author(name='Villager Bot Statistics', icon_url=self.d.splash_logo)
-            embed.set_footer(text='Made by Iapetus11#6821')
+        embed = discord.Embed(color=self.d.cc)
 
-            col_1 = f'{ctx.l.useful.stats.servers}: `{len(self.bot.guilds)}`\n' \
-                    f'{ctx.l.useful.stats.dms}: `{len(self.bot.private_channels)}/128`\n' \
-                    f'{ctx.l.useful.stats.users}: `{len(self.bot.users)}`\n' \
-                    f'{ctx.l.useful.stats.msgs}: `{self.d.msg_count}`\n' \
-                    f'{ctx.l.useful.stats.cmds}: `{self.d.cmd_count}` `({round((self.d.cmd_count / (self.d.msg_count + .000001)) * 100, 2)}%)`\n' \
-                    f'{ctx.l.useful.stats.cmds_sec}: `{round(self.d.cmd_count / uptime_seconds, 2)}`\n' \
-                    f'{ctx.l.useful.stats.votes}: `{self.d.votes_topgg}`\n' \
-                    f'{ctx.l.useful.stats.topgg}: `{round((self.d.votes_topgg / uptime_seconds) * 3600, 2)}`\n'
+        embed.set_author(name=ctx.l.useful.stats.stats, icon_url=self.d.splash_logo)
+        embed.set_footer(text=ctx.l.misc.petus)
 
-            col_2 = f'{ctx.l.useful.stats.mem}: `{round(mem_usage / 1000000, 2)} MB`\n' \
-                    f'{ctx.l.useful.stats.cpu}: `{round(proc.cpu_percent() / psutil.cpu_count(), 2)}%`\n' \
-                    f'{ctx.l.useful.stats.threads}: `{threads}`\n' \
-                    f'{ctx.l.useful.stats.ping}: `{round(self.bot.latency * 1000, 2)} ms`\n' \
-                    f'{ctx.l.useful.stats.shards}: `{self.bot.shard_count}`\n' \
-                    f'{ctx.l.useful.stats.uptime}: `{uptime_seconds}s`\n'
+        col_1 = f'{ctx.l.useful.stats.servers}: `{len(self.bot.guilds)}`\n' \
+                f'{ctx.l.useful.stats.dms}: `{len(self.bot.private_channels)}/128`\n' \
+                f'{ctx.l.useful.stats.users}: `{len(self.bot.users)}`\n' \
+                f'{ctx.l.useful.stats.msgs}: `{self.d.msg_count}`\n' \
+                f'{ctx.l.useful.stats.cmds}: `{self.d.cmd_count}` `({round((self.d.cmd_count / (self.d.msg_count + .000001)) * 100, 2)}%)`\n' \
+                f'{ctx.l.useful.stats.cmds_sec}: `{round(self.d.cmd_count / uptime_seconds, 2)}`\n' \
+                f'{ctx.l.useful.stats.votes}: `{self.d.votes_topgg}`\n' \
+                f'{ctx.l.useful.stats.topgg}: `{round((self.d.votes_topgg / uptime_seconds) * 3600, 2)}`\n'
 
-            embed.add_field(name='\uFEFF', value=col_1+'\uFEFF')
-            embed.add_field(name='\uFEFF', value=col_2+'\uFEFF')
+        col_2 = f'{ctx.l.useful.stats.mem}: `{round(mem_usage / 1000000, 2)} MB`\n' \
+                f'{ctx.l.useful.stats.cpu}: `{round(proc.cpu_percent() / psutil.cpu_count(), 2)}%`\n' \
+                f'{ctx.l.useful.stats.threads}: `{threads}`\n' \
+                f'{ctx.l.useful.stats.ping}: `{round(self.bot.latency * 1000, 2)} ms`\n' \
+                f'{ctx.l.useful.stats.shards}: `{self.bot.shard_count}`\n' \
+                f'{ctx.l.useful.stats.uptime}: `{uptime}`\n'
+
+        col_2 += '\n' + ctx.l.useful.stats.more.format(self.d.statcord)
+
+        embed.add_field(name='\uFEFF', value=col_1+'\uFEFF')
+        embed.add_field(name='\uFEFF', value=col_2+'\uFEFF')
 
         await ctx.send(embed=embed)
 
-    @commands.command(name='guildinfo', aliases=['server', 'serverinfo', 'guild'])
+    @commands.command(name='serverinfo', aliases=['server', 'guild'])
     @commands.guild_only()
-    async def guild_info(self, ctx, gid: int = None):
+    async def server_info(self, ctx, gid: int = None):
         if gid is None:
             guild = ctx.guild
         else:

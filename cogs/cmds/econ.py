@@ -11,14 +11,19 @@ import math
 class Econ(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.d = self.bot.d
 
-        self.db = self.bot.get_cog('Database')
+        self.d = bot.d
+
+        self.db = bot.get_cog('Database')
 
         if self.d.honey_buckets is not None:
             self.honey._buckets = self.d.honey_buckets
 
         self.pillage_cap_reset.start()
+
+        # This links the max concurrency of the with, dep, sell, give, etc.. cmds
+        for command in (self.vault_deposit, self.vault_withdraw, self.buy, self.sell, self.give, self.gamble, self.search, self.mine, self.pillage):
+            command._max_concurrency = self.max_concurrency_dummy._max_concurrency
 
     def cog_unload(self):
         self.d.honey_buckets = self.honey._buckets
@@ -34,12 +39,15 @@ class Econ(commands.Cog):
     async def before_pillage_cap_reset(self):
         await self.bot.wait_until_ready()
 
-    async def format_required(self, item, amount=1):
+    def format_required(self, item, amount=1):
         if item[3][0] == 'Netherite Pickaxe':
             return f' {item[1] * amount}{self.d.emojis.emerald} + {4 * amount}{self.d.emojis.netherite}'
 
         if item[3][0] == 'Netherite Sword':
             return f' {item[1] * amount}{self.d.emojis.emerald} + {6 * amount}{self.d.emojis.netherite}'
+
+        if item[3][0] == 'Slime Trophy':
+            return f' {item[1] * amount}{self.d.emojis.emerald} + {24 * amount}{self.d.emojis.slimeball}'
 
         return f' {item[1] * amount}{self.d.emojis.emerald}'
 
@@ -71,8 +79,13 @@ class Econ(commands.Cog):
 
         return True
 
+    @commands.command(name='max_concurrency_dummy')
+    @commands.max_concurrency(1, commands.BucketType.user)
+    async def max_concurrency_dummy(self, ctx):
+        pass
+
     @commands.command(name='profile', aliases=['pp'])
-    async def profile(self, ctx, user: discord.User = None):
+    async def profile(self, ctx, *, user: discord.User = None):
         if user is None:
             user = ctx.author
 
@@ -89,6 +102,12 @@ class Econ(commands.Cog):
         total_wealth = db_user['emeralds'] + db_user.get('vault_bal', 0) * 9 + sum([u_it.get('sell_price', 0) * u_it.get('amount', 0) for u_it in u_items])
         health_bar = make_health_bar(db_user['health'], 20, self.d.emojis.heart_full, self.d.emojis.heart_half, self.d.emojis.heart_empty)
 
+        vote_streak = db_user['vote_streak']
+        voted = arrow.utcnow().shift(hours=-12) < arrow.get(0 if db_user['streak_time'] is None else db_user['streak_time'])
+
+        if arrow.utcnow().shift(days=-1, minutes=-10) > arrow.get(0 if db_user['streak_time'] is None else db_user['streak_time']):
+            vote_streak = 0
+
         embed = discord.Embed(color=self.d.cc, description=health_bar)
         embed.set_author(name=user.display_name, icon_url=user.avatar_url_as())
 
@@ -96,14 +115,18 @@ class Econ(commands.Cog):
         embed.add_field(name='\uFEFF', value='\uFEFF')
         embed.add_field(name=ctx.l.econ.pp.cmds_sent, value=self.d.cmd_lb.get(user.id, 0))
 
-        embed.add_field(name='Pickaxe', value=(await self.db.fetch_pickaxe(user.id)))
+        embed.add_field(name=ctx.l.econ.pp.streak, value=(vote_streak if vote_streak else 0))
         embed.add_field(name='\uFEFF', value='\uFEFF')
-        embed.add_field(name='Sword', value=(await self.db.fetch_sword(user.id)))
+        embed.add_field(name=ctx.l.econ.pp.can_vote, value=voted*ctx.l.econ.pp.nope+ctx.l.econ.pp.yep*(not voted))
+
+        embed.add_field(name=ctx.l.econ.pp.pick, value=(await self.db.fetch_pickaxe(user.id)))
+        embed.add_field(name='\uFEFF', value='\uFEFF')
+        embed.add_field(name=ctx.l.econ.pp.sword, value=(await self.db.fetch_sword(user.id)))
 
         await ctx.send(embed=embed)
 
     @commands.command(name='balance', aliases=['bal', 'vault'])
-    async def balance(self, ctx, user: discord.User = None):
+    async def balance(self, ctx, *, user: discord.User = None):
         """Shows the balance of a user or the message sender"""
 
         if user is None:
@@ -135,9 +158,9 @@ class Econ(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @commands.command(name='inv', aliases=['inventory', 'pocket'])
+    @commands.command(name='inventory', aliases=['inv', 'pocket'])
     @commands.cooldown(2, 10, commands.BucketType.user)
-    async def inventory(self, ctx, user: discord.User = None):
+    async def inventory(self, ctx, *, user: discord.User = None):
         """Shows the inventory of a user or the message sender"""
 
         if user is None:
@@ -206,6 +229,7 @@ class Econ(commands.Cog):
 
     @commands.command(name='deposit', aliases=['dep'])
     @commands.cooldown(1, 2, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def vault_deposit(self, ctx, emerald_blocks: str):
         """Deposits the given amount of emerald blocks into the vault"""
 
@@ -231,6 +255,10 @@ class Econ(commands.Cog):
                 await self.bot.send(ctx, ctx.l.econ.use_a_number_stupid)
                 return
 
+        if amount * 9 > c_bal:
+            await self.bot.send(ctx, ctx.l.econ.dep.stupid_3)
+            return
+
         if amount < 1:
             if emerald_blocks.lower() in ('all', 'max',):
                 await self.bot.send(ctx, ctx.l.econ.dep.stupid_2)
@@ -250,6 +278,7 @@ class Econ(commands.Cog):
 
     @commands.command(name='withdraw', aliases=['with'])
     @commands.cooldown(1, 2, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def vault_withdraw(self, ctx, emerald_blocks: str):
         """Withdraws a certain amount of emerald blocks from the vault"""
 
@@ -323,7 +352,7 @@ class Econ(commands.Cog):
             embed.set_author(name=header, icon_url=self.d.splash_logo)
 
             for item in items_chunked[page]:
-                embed.add_field(name=f'{item[3][0]} ({await self.format_required(item)})', value=f'`{ctx.prefix}buy {item[3][0].lower()}`', inline=False)
+                embed.add_field(name=f'{item[3][0]} ({self.format_required(item)})', value=f'`{ctx.prefix}buy {item[3][0].lower()}`', inline=False)
 
             embed.set_footer(text=f'{ctx.l.econ.page} {page+1}/{page_max}')
 
@@ -376,6 +405,7 @@ class Econ(commands.Cog):
 
     @commands.command(name='buy')
     @commands.cooldown(1, 5, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def buy(self, ctx, *, amount_item):
         """Allows you to buy items"""
 
@@ -445,7 +475,15 @@ class Econ(commands.Cog):
                 if db_scrap is not None and db_scrap['amount'] >= required:
                     await self.db.remove_item(ctx.author.id, 'Netherite Scrap', required)
                 else:
-                    await self.bot.send(ctx, ctx.l.econ.buy.need_total_of.format(required, self.d.emojis.netherite))
+                    await self.bot.send(ctx, ctx.l.econ.buy.need_total_of.format(required, self.d.emojis.netherite, 'Netherite Scrap'))
+                    return
+            elif shop_item[3][0] == 'Slime Trophy':
+                db_slime = await self.db.fetch_item(ctx.author.id, 'Slime Ball')
+
+                if db_slime is not None and db_slime['amount'] >= 24:
+                    await self.db.remove_item(ctx.author.id, 'Slime Ball', 24)
+                else:
+                    await self.bot.send(ctx, ctx.l.econ.buy.need_total_of.format(24, self.d.emojis.slimeball, 'Slime Ball'))
                     return
 
             await self.db.balance_sub(ctx.author.id, shop_item[1] * amount)
@@ -455,7 +493,7 @@ class Econ(commands.Cog):
                 ctx.l.econ.buy.you_done_bought.format(
                     amount,
                     shop_item[3][0],
-                    await self.format_required(shop_item, amount),
+                    self.format_required(shop_item, amount),
                     amount+db_item_count
                 )
             )
@@ -471,6 +509,7 @@ class Econ(commands.Cog):
 
     @commands.command(name='sell')
     @commands.cooldown(1, 5, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def sell(self, ctx, *, amount_item):
         """Allows you to sell items"""
 
@@ -521,9 +560,10 @@ class Econ(commands.Cog):
                                                                       amount*db_item['sell_price'],
                                                                       self.d.emojis.emerald))
 
-    @commands.command(name='give')
+    @commands.command(name='give', aliases=['gift', 'share', 'gib'])
     @commands.guild_only()
     @commands.cooldown(1, 10, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def give(self, ctx, user: discord.Member, *, amount_item):
         """Give an item or emeralds to another person"""
 
@@ -539,16 +579,17 @@ class Econ(commands.Cog):
             return
 
         amount_item = amount_item.lower()
-
         try:
             # to be given is emeralds
             amount = int(amount_item)
             item = 'emerald'
         except Exception:
             split = amount_item.split(' ')
-
             try:
-                amount = int(split.pop(0))
+                temp_split = split.copy()
+                amount = int(temp_split.pop(0))
+                split = temp_split
+
             except Exception:
                 amount = 1
 
@@ -573,16 +614,19 @@ class Econ(commands.Cog):
             await self.db.balance_add(user.id, amount)
             await self.db.log_transaction('emerald', amount, arrow.utcnow().timestamp, ctx.author.id, user.id)
 
-            await self.bot.send(ctx, ctx.l.econ.give.gave.format(ctx.author.mention, amount, self.d.emojis.emerald, user.mention))
+            await self.bot.send(ctx, ctx.l.econ.give.gaveems.format(ctx.author.mention, amount, self.d.emojis.emerald, user.mention))
+
+            if (await self.db.fetch_user(user.id))['give_alert']:
+                await self.bot.send(user, ctx.l.econ.give.gaveyouems.format(ctx.author.mention, amount, self.d.emojis.emerald))
         else:
             db_item = await self.db.fetch_item(ctx.author.id, item)
 
-            if db_item['sticky']:
-                await self.bot.send(ctx, ctx.l.econ.give.and_i_oop)
-                return
-
             if db_item is None or amount > db_item['amount']:
                 await self.bot.send(ctx, ctx.l.econ.give.stupid_4)
+                return
+
+            if db_item['sticky']:
+                await self.bot.send(ctx, ctx.l.econ.give.and_i_oop)
                 return
 
             if amount < 1:
@@ -595,8 +639,12 @@ class Econ(commands.Cog):
 
             await self.bot.send(ctx, ctx.l.econ.give.gave.format(ctx.author.mention, amount, db_item['name'], user.mention))
 
+            if (await self.db.fetch_user(user.id))['give_alert']:
+                await self.bot.send(user, ctx.l.econ.give.gaveyou.format(ctx.author.mention, amount, db_item['name']))
+
     @commands.command(name='gamble', aliases=['bet', 'stonk', 'stonks'])
-    @commands.cooldown(1, 45, commands.BucketType.user)
+    @commands.cooldown(1, 30, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def gamble(self, ctx, amount):
         """Gamble for emeralds with Villager Bot"""
 
@@ -604,6 +652,7 @@ class Econ(commands.Cog):
 
         if amount.lower() in ('all', 'max',):
             amount = db_user['emeralds']
+
         else:
             try:
                 amount = int(amount)
@@ -619,20 +668,35 @@ class Econ(commands.Cog):
             await self.bot.send(ctx, ctx.l.econ.gamble.stupid_2)
             return
 
+        if amount > 25000:
+            await self.bot.send(ctx, ctx.l.econ.gamble.stupid_3)
+            return
+
+        if db_user['emeralds'] >= 200000:
+            await self.bot.send(ctx, ctx.l.econ.gamble.too_rich)
+            return
+
         u_roll = random.randint(2, 12)
         b_roll = random.randint(2, 12)
 
         await self.bot.send(ctx, ctx.l.econ.gamble.roll.format(u_roll, b_roll))
 
         if u_roll > b_roll:
-            multi = 100 + random.randint(5, 30) + (await self.db.fetch_item(ctx.author.id, 'Bane Of Pillagers Amulet') is not None) * 75
-            multi += ((await self.db.fetch_item(ctx.author.id, 'Rich Person Trophy') is not None) * 20)
-            multi = (200 + random.randint(-5, 0)) if multi >= 200 else multi
-            multi /= 100
+            past_transactions = await self.db.fetch_transactions_by_sender(ctx.author.id, 7)
+            multi = None
 
-            won = int(multi * amount)
-            if won > 45000:
-                won = 45000 + random.randint(-5000, 5000)
+            for record in past_transactions:
+                if record['item'] == 'emerald' and record['amount'] > 2048:
+                    multi = (random.random() / 2) + .075
+                    break
+
+            if multi is None:
+                multi = 40 + random.randint(5, 30) + (await self.db.fetch_item(ctx.author.id, 'Bane Of Pillagers Amulet') is not None) * 20
+                multi += ((await self.db.fetch_item(ctx.author.id, 'Rich Person Trophy') is not None) * 40)
+                multi = (150 + random.randint(-5, 0)) if multi >= 150 else multi
+                multi /= 100
+
+            won = math.ceil(multi * amount)
 
             await self.db.balance_add(ctx.author.id, won)
             await self.bot.send(ctx, ctx.l.econ.gamble.win.format(random.choice(ctx.l.econ.gamble.actions), won, self.d.emojis.emerald))
@@ -642,9 +706,10 @@ class Econ(commands.Cog):
         else:
             await self.bot.send(ctx, ctx.l.econ.gamble.tie)
 
-    @commands.command(name='beg', aliases=['search'])
+    @commands.command(name='search', aliases=['beg'])
     @commands.cooldown(1, 30*60, commands.BucketType.user)
-    async def beg(self, ctx):
+    @commands.max_concurrency(1, commands.BucketType.user)
+    async def search(self, ctx):
         """Beg for emeralds"""
 
         db_user = await self.db.fetch_user(ctx.author.id)
@@ -674,6 +739,7 @@ class Econ(commands.Cog):
     @commands.command(name='mine', aliases=['mein', 'eun'])
     @commands.guild_only()
     @commands.cooldown(1, 2, commands.BucketType.user)
+    @commands.max_concurrency(1, commands.BucketType.user)
     async def mine(self, ctx):
         if not await self.math_problem(ctx): return
 
@@ -735,14 +801,15 @@ class Econ(commands.Cog):
 
             await self.bot.send(ctx, ctx.l.econ.mine.found_emeralds.format(random.choice(ctx.l.econ.mine.actions), found, self.d.emojis.emerald))
 
-        if random.randint(0, 200) == 1:
+        if random.randint(0, 50) == 1:
             if db_user['vault_max'] < 2000:
                 await self.db.update_user(ctx.author.id, 'vault_max', db_user['vault_max']+1)
 
-    @commands.command(name='pillage')
+    @commands.command(name='pillage', aliases=['bonk'])
     @commands.guild_only()
     @commands.cooldown(1, 300, commands.BucketType.user)
-    async def pillage(self, ctx, victim: discord.User):
+    @commands.max_concurrency(1, commands.BucketType.user)
+    async def pillage(self, ctx, victim: discord.Member):
         if victim.bot:
             if victim.id == self.bot.user.id:
                 await self.bot.send(ctx, ctx.l.econ.pillage.bot_1)
@@ -794,6 +861,14 @@ class Econ(commands.Cog):
         else:
             chances = [True, False]
 
+        pillager_sword_lvl =  self.d.sword_list.index((await self.db.fetch_sword(ctx.author.id)).lower())
+        victim_sword_lvl = self.d.sword_list.index((await self.db.fetch_sword(victim.id)).lower())
+
+        if pillager_sword_lvl > victim_sword_lvl:
+            chances.append(True)
+        elif pillager_sword_lvl < victim_sword_lvl:
+            chances.append(False)
+
         success = random.choice(chances)
 
         if success:
@@ -816,60 +891,64 @@ class Econ(commands.Cog):
             await self.bot.send(ctx, random.choice(ctx.l.econ.pillage.u_lose.user).format(penalty, self.d.emojis.emerald))
             await self.bot.send(victim, random.choice(ctx.l.econ.pillage.u_lose.victim).format(ctx.author.mention))
 
-    @commands.command(name='chug', aliases=['eat'])
-    @commands.cooldown(1, 0.5, commands.BucketType.user)
-    async def chug(self, ctx, *, _pot):
-        """Allows you to use potions"""
+    @commands.command(name='use', aliases=['eat', 'chug'])
+    @commands.cooldown(1, 0.25, commands.BucketType.user)
+    async def use_item(self, ctx, *, thing):
+        """Allows you to use potions and some other items"""
 
-        pot = _pot.lower()  # everyday bois
+        thing = thing.lower()
 
         current_pots = self.d.chuggers.get(ctx.author.id)
 
-        if pot in ([] if current_pots is None else current_pots):
-            await self.bot.send(ctx, ctx.l.econ.chug.stupid_1)
+        if thing in ([] if current_pots is None else current_pots):
+            await self.bot.send(ctx, ctx.l.econ.use.stupid_1)
             return
 
-        db_item = await self.db.fetch_item(ctx.author.id, pot)
+        db_item = await self.db.fetch_item(ctx.author.id, thing)
 
         if db_item is None:
-            await self.bot.send(ctx, ctx.l.econ.chug.stupid_2)
+            await self.bot.send(ctx, ctx.l.econ.use.stupid_2)
             return
 
-        if pot == 'haste i potion':
-            await self.db.remove_item(ctx.author.id, pot, 1)
+        if thing == 'haste i potion':
+            await self.db.remove_item(ctx.author.id, thing, 1)
 
             self.d.chuggers[ctx.author.id] = self.d.chuggers.get(ctx.author.id, [])  # ensure user has stuff there
-            self.d.chuggers[ctx.author.id].append('Haste I Potion')
+            self.d.chuggers[ctx.author.id].append('haste i potion')
 
-            await self.bot.send(ctx, ctx.l.econ.chug.chug.format('Haste I Potion', 6))
+            await self.bot.send(ctx, ctx.l.econ.use.chug.format('Haste I Potion', 6))
+
+            self.d.pause_econ.pop(ctx.author.id, None)
 
             await asyncio.sleep(60 * 6)
 
-            await self.bot.send(ctx.author, ctx.l.econ.chug.done.format('Haste I Potion'))
+            await self.bot.send(ctx.author, ctx.l.econ.use.done.format('Haste I Potion'))
 
-            self.d.chuggers[ctx.author.id].pop(self.d.chuggers[ctx.author.id].index('Haste I Potion'))  # pop pot from active potion fx
+            self.d.chuggers[ctx.author.id].pop(self.d.chuggers[ctx.author.id].index('haste i potion'))  # pop pot from active potion fx
             return
 
-        if pot == 'haste ii potion':
-            await self.db.remove_item(ctx.author.id, pot, 1)
+        if thing == 'haste ii potion':
+            await self.db.remove_item(ctx.author.id, thing, 1)
 
             self.d.chuggers[ctx.author.id] = self.d.chuggers.get(ctx.author.id, [])
-            self.d.chuggers[ctx.author.id].append('Haste II Potion')
+            self.d.chuggers[ctx.author.id].append('haste ii potion')
 
-            await self.bot.send(ctx, ctx.l.econ.chug.chug.format('Haste II Potion', 4.5))
+            await self.bot.send(ctx, ctx.l.econ.use.chug.format('Haste II Potion', 4.5))
 
-            await asyncio.sleep(60 * 6)
+            self.d.pause_econ.pop(ctx.author.id, None)
 
-            await self.bot.send(ctx.author, ctx.l.econ.chug.done.format('Haste II Potion'))
+            await asyncio.sleep(60 * 4.5)
 
-            self.d.chuggers[ctx.author.id].pop(self.d.chuggers[ctx.author.id].index('Haste II Potion'))  # pop pot from active potion fx
+            await self.bot.send(ctx.author, ctx.l.econ.use.done.format('Haste II Potion'))
+
+            self.d.chuggers[ctx.author.id].pop(self.d.chuggers[ctx.author.id].index('haste ii potion'))  # pop pot from active potion fx
             return
 
-        if pot == 'vault potion':
+        if thing == 'vault potion':
             db_user = await self.db.fetch_user(ctx.author.id)
 
             if db_user['vault_max'] > 1999:
-                await self.bot.send(ctx, ctx.l.econ.chug.vault_max)
+                await self.bot.send(ctx, ctx.l.econ.use.vault_max)
                 return
 
             add = random.randint(9, 15)
@@ -880,21 +959,31 @@ class Econ(commands.Cog):
             await self.db.remove_item(ctx.author.id, 'Vault Potion', 1)
             await self.db.set_vault(ctx.author.id, db_user['vault_bal'], db_user['vault_max'] + add)
 
-            await self.bot.send(ctx, ctx.l.econ.chug.vault_pot.format(add))
+            await self.bot.send(ctx, ctx.l.econ.use.vault_pot.format(add))
             return
 
-        if pot == 'honey jar':
+        if thing == 'honey jar':
             db_user = await self.db.fetch_user(ctx.author.id)
 
             if db_user['health'] < 20:
                 await self.db.update_user(ctx.author.id, 'health', db_user['health']+1)
 
-            await self.bot.send(ctx, ctx.l.econ.chug.chug_no_end.format('Honey Jar'))
+            await self.db.remove_item(ctx.author.id, 'Honey Jar', 1)
+            await self.bot.send(ctx, ctx.l.econ.use.chug_no_end.format('Honey Jar'))
             return
 
-        await self.bot.send(ctx, ctx.l.econ.chug.stupid_3)
+        if thing == 'present':
+            await self.db.remove_item(ctx.author.id, 'Present', 1)
+            while True:
+                for item in self.d.findables:
+                    if random.randint(0, (item[2]//2)+2) == 1:
+                        await self.db.add_item(ctx.author.id, item[0], item[1], 1, item[3])
+                        await self.bot.send(ctx, random.choice(ctx.l.econ.use.present).format(item[0], item[1], self.d.emojis.emerald))
+                        return
 
-    @commands.command(name='harvesthoney', aliases=['honey', 'horny'])  # ~~a strange urge occurs in me~~
+        await self.bot.send(ctx, ctx.l.econ.use.stupid_3)
+
+    @commands.command(name='honey', aliases=['harvesthoney', 'horny'])  # ~~a strange urge occurs in me~~
     @commands.cooldown(1, 24*60*60, commands.BucketType.user)
     async def honey(self, ctx):
         bees = await self.db.fetch_item(ctx.author.id, 'Jar Of Bees')
@@ -908,6 +997,7 @@ class Econ(commands.Cog):
 
         if bees < 100:
             await self.bot.send(ctx, random.choice(ctx.l.econ.honey.stupid_1))
+            ctx.command.reset_cooldown(ctx)
             return
 
         jars = bees - random.randint(math.ceil(bees / 6), math.ceil(bees / 2))
@@ -938,6 +1028,7 @@ class Econ(commands.Cog):
             embed.add_field(name=ctx.l.econ.lb.kills, value=f'`{ctx.prefix}leaderboard mobkills`', inline=False)
             embed.add_field(name=ctx.l.econ.lb.bees, value=f'`{ctx.prefix}leaderboard bees`', inline=False)
             embed.add_field(name=ctx.l.econ.lb.cmds, value=f'`{ctx.prefix}leaderboard commands`', inline=False)
+            embed.add_field(name=ctx.l.econ.lb.votes, value=f'`{ctx.prefix}leaderboard votes`', inline=False)
 
             await ctx.send(embed=embed)
 
@@ -971,56 +1062,103 @@ class Econ(commands.Cog):
         if u_place > 9:
             body += '\n⋮' + rank_fstr.format(u_place, origin_value, discord.utils.escape_markdown(self.bot.get_user(origin_uid).display_name))
 
-        return body
+        return body + '\uFEFF'
 
     @leaderboards.command(name='emeralds', aliases=['ems'])
     async def leaderboard_emeralds(self, ctx):
-        emeralds = [(r[0], r[1]) for r in await self.db.mass_fetch_balances()]
-        emeralds = sorted(emeralds, key=(lambda tup: tup[1]), reverse=True)
+        with ctx.typing():
+            emeralds = sorted((await self.db.mass_fetch_balances()), key=(lambda tup: tup[1]), reverse=True)
 
-        lb = await self.leaderboard_logic(emeralds, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.emerald))
+            lb_global = await self.leaderboard_logic(emeralds, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.emerald))
 
-        embed = discord.Embed(color=self.d.cc, description=lb, title=ctx.l.econ.lb.lb_ems.format(self.d.emojis.emerald))
+            emeralds_local = [u for u in emeralds if ctx.guild.get_member(u[0])]
+            lb_local = await self.leaderboard_logic(emeralds_local, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.emerald))
+
+        embed = discord.Embed(color=self.d.cc, title=ctx.l.econ.lb.lb_ems.format(self.d.emojis.emerald_spinn))
+        embed.add_field(name=ctx.l.econ.lb.local_lb, value=lb_local)
+        embed.add_field(name=ctx.l.econ.lb.global_lb, value=lb_global)
+
         await ctx.send(embed=embed)
 
     @leaderboards.command(name='pillages', aliases=['pil', 'stolen'])
     async def leaderboard_pillages(self, ctx):
-        pillages = [(r[0], r[1]) for r in await self.db.mass_fetch_leaderboard('pillages')]
-        pillages = sorted(pillages, key=(lambda tup: tup[1]), reverse=True)
+        with ctx.typing():
+            pillages = sorted((await self.db.mass_fetch_leaderboard('pillages')), key=(lambda tup: tup[1]), reverse=True)
 
-        lb = await self.leaderboard_logic(pillages, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.emerald))
+            lb_global = await self.leaderboard_logic(pillages, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.emerald))
 
-        embed = discord.Embed(color=self.d.cc, description=lb, title=ctx.l.econ.lb.lb_pil.format(self.d.emojis.emerald))
+            pillages_local = [u for u in pillages if ctx.guild.get_member(u[0])]
+            lb_local = await self.leaderboard_logic(pillages_local, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.emerald))
+
+        embed = discord.Embed(color=self.d.cc, title=ctx.l.econ.lb.lb_pil.format(self.d.emojis.emerald))
+        embed.add_field(name=ctx.l.econ.lb.local_lb, value=lb_local)
+        embed.add_field(name=ctx.l.econ.lb.global_lb, value=lb_global)
+
         await ctx.send(embed=embed)
 
     @leaderboards.command(name='mobkills', aliases=['kil', 'kills', 'kill', 'bonk'])
     async def leaderboard_mobkills(self, ctx):
-        kills = [(r[0], r[1]) for r in await self.db.mass_fetch_leaderboard('mobs_killed')]
-        kills = sorted(kills, key=(lambda tup: tup[1]), reverse=True)
+        with ctx.typing():
+            kills = sorted((await self.db.mass_fetch_leaderboard('mobs_killed')), key=(lambda tup: tup[1]), reverse=True)
 
-        lb = await self.leaderboard_logic(kills, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.stevegun))
+            lb_global = await self.leaderboard_logic(kills, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.stevegun))
 
-        embed = discord.Embed(color=self.d.cc, description=lb, title=ctx.l.econ.lb.lb_kil.format(self.d.emojis.stevegun))
+            kills_local = [u for u in kills if ctx.guild.get_member(u[0])]
+            lb_local = await self.leaderboard_logic(kills_local, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.stevegun))
+
+        embed = discord.Embed(color=self.d.cc, title=ctx.l.econ.lb.lb_kil.format(self.d.emojis.stevegun))
+        embed.add_field(name=ctx.l.econ.lb.local_lb, value=lb_local)
+        embed.add_field(name=ctx.l.econ.lb.global_lb, value=lb_global)
+
         await ctx.send(embed=embed)
 
     @leaderboards.command(name='bees', aliases=['jarofbees', 'jarsofbees'])
     async def leaderboard_bees(self, ctx):
-        bees = [(r['uid'], r['amount']) for r in await self.db.mass_fetch_item('Jar Of Bees')]
-        bees = sorted(bees, key=(lambda tup: tup[1]), reverse=True)
+        with ctx.typing():
+            bees = [(r['uid'], r['amount']) for r in await self.db.mass_fetch_item('Jar Of Bees')]
+            bees = sorted(bees, key=(lambda tup: tup[1]), reverse=True)
 
-        lb = await self.leaderboard_logic(bees, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.bee))
+            lb_global = await self.leaderboard_logic(bees, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.bee))
 
-        embed = discord.Embed(color=self.d.cc, description=lb, title=ctx.l.econ.lb.lb_bee.format(self.d.emojis.anibee))
+            bees_local = [u for u in bees if ctx.guild.get_member(u[0])]
+            lb_local = await self.leaderboard_logic(bees_local, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.bee))
+
+        embed = discord.Embed(color=self.d.cc, title=ctx.l.econ.lb.lb_bee.format(self.d.emojis.anibee))
+        embed.add_field(name=ctx.l.econ.lb.local_lb, value=lb_local)
+        embed.add_field(name=ctx.l.econ.lb.global_lb, value=lb_global)
+
         await ctx.send(embed=embed)
 
     @leaderboards.command(name='commands', aliases=['cmds'])
     async def leaderboard_commands(self, ctx):
-        cmds = [(u, self.d.cmd_lb[u]) for u in list(self.d.cmd_lb)]
-        cmds = sorted(cmds, key=(lambda tup: tup[1]), reverse=True)
+        with ctx.typing():
+            cmds = sorted(self.d.cmd_lb.items(), key=(lambda tup: tup[1]), reverse=True)
 
-        lb = await self.leaderboard_logic(cmds, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', ':keyboard:'))
+            lb_global = await self.leaderboard_logic(cmds, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', ':keyboard:'))
 
-        embed = discord.Embed(color=self.d.cc, description=lb, title=ctx.l.econ.lb.lb_cmds.format(':keyboard:'))
+            cmds_local = [u for u in cmds if ctx.guild.get_member(u[0])]
+            lb_local = await self.leaderboard_logic(cmds_local, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', ':keyboard:'))
+
+        embed = discord.Embed(color=self.d.cc, title=ctx.l.econ.lb.lb_cmds.format(':keyboard:'))
+        embed.add_field(name=ctx.l.econ.lb.local_lb, value=lb_local)
+        embed.add_field(name=ctx.l.econ.lb.global_lb, value=lb_global)
+
+        await ctx.send(embed=embed)
+
+    @leaderboards.command(name='votes', aliases=['votestreaks', 'votestreak'])
+    async def leaderboard_votes(self, ctx):
+        with ctx.typing():
+            vote_streaks = sorted(await self.db.mass_fetch_votestreaks(), key=(lambda tup: tup[1]), reverse=True)
+
+            lb_global = await self.leaderboard_logic(vote_streaks, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.updoot))
+
+            vote_streaks_local = [u for u in vote_streaks if ctx.guild.get_member(u[0])]
+            lb_local = await self.leaderboard_logic(vote_streaks_local, ctx.author.id, '\n`{0}.` **{0}**{1} {0}'.format('{}', self.d.emojis.updoot))
+
+        embed = discord.Embed(color=self.d.cc, title=ctx.l.econ.lb.lb_votes.format(':fire:'))
+        embed.add_field(name=ctx.l.econ.lb.local_lb, value=lb_local)
+        embed.add_field(name=ctx.l.econ.lb.global_lb, value=lb_global)
+
         await ctx.send(embed=embed)
 
 

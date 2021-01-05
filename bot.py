@@ -19,10 +19,6 @@ logger.info('loading private keys...')
 with open('data/keys.json', 'r') as k:  # load bot keys
     keys = cj.load(k)
 
-logger.info('loading config...')
-with open('data/config.json', 'r') as c:  # load config
-    config = cj.load(c)
-
 
 async def get_prefix(_bot, ctx):  # async function to fetch a prefix from the database
     if ctx.guild is None:
@@ -73,12 +69,12 @@ async def send(_bot, location, message):  # send function/method for easy sendin
 
 async def get_lang(_bot, ctx):
     if ctx.guild is None:
-        return _bot.langs.en_us
+        return _bot.langs.en
 
     lang = _bot.d.lang_cache.get(ctx.guild.id)
 
     if lang is None:
-        lang = 'en_us'
+        lang = 'en'
 
     return _bot.langs[lang]
 
@@ -90,10 +86,10 @@ bot.get_lang = get_lang.__get__(bot)
 async def setup_database():  # init pool connection to database
     logger.info('setting up connection to database and db pool...')
     bot.db = await asyncpg.create_pool(
-        host=config['database']['host'],  # where db is hosted
-        database=config['database']['name'],  # name of database
-        user=config['database']['user'],  # database username
-        password=keys['database'],  # password which goes with user
+        host=keys.database.host,  # where db is hosted
+        database=keys.database.name,  # name of database
+        user=keys.database.user,  # database username
+        password=keys.database.passw,  # password which goes with user
         max_size=50,
         command_timeout=5
     )
@@ -111,11 +107,8 @@ with open('data/data.json', 'r', encoding='utf8') as d:
 
 bot.d.cc = discord.Color.green()  # embed color
 
-bot.d.vb_api_key = keys.vb_api_key
-bot.d.hs_hook_auth = keys.hs_hook_auth
-bot.d.topgg_hooks_auth = keys.topgg_webhook
-bot.d.topgg_post_auth = keys.topgg
-bot.d.google_keys = keys.googl
+bot.k = keys
+bot.k.fernet = bot.k.fernet.encode('utf-8')
 
 bot.d.votes_topgg = 0
 bot.d.cmd_count = 0
@@ -134,14 +127,16 @@ bot.d.cmd_lb = {}  # {user_id: command_count}
 bot.d.pause_econ = {}  # {uid: starttime}
 bot.d.spawn_queue = {}  # {ctx: starttime}
 
+bot.d.rcon_cache = {}  # {uid: rcon_client}
+
+bot.d.disabled_cmds = {}  # {gid: [disabled cmds]}
+
 bot.d.ban_cache = []  # [uid, uid,..]
 bot.d.prefix_cache = {}  # {gid: 'prefix'}
 bot.d.lang_cache = {}  # {gid: 'lang'}
 
 bot.d.additional_mcservers = []
 bot.d.mcserver_list = []
-
-bot.d.rcon_connection_cache = {}
 
 bot.d.fun_langs.unenchant = {v: k for k, v in bot.d.fun_langs.enchant.items()}  # reverse dict to create unenchantment lang
 
@@ -159,12 +154,19 @@ bot.cog_list = [  # list of cogs which are to be loaded in the bot
     'cogs.cmds.econ',
     'cogs.cmds.config',
     'cogs.other.mobs',
-    'cogs.other.status'
+    'cogs.other.status',
+    'cogs.other.statcord'
 ]
 
 for cog in bot.cog_list:  # load every cog in bot.cog_list
     logger.info(f'loading extension: {cog}')
     bot.load_extension(cog)
+
+
+async def send_tip(ctx):
+    await asyncio.sleep(1)
+    await ctx.send(f'{random.choice(ctx.l.misc.tip_intros)} {random.choice(ctx.l.misc.tips)}')
+
 
 @bot.check  # everythingggg goes through here
 async def global_check(ctx):
@@ -182,6 +184,10 @@ async def global_check(ctx):
         ctx.custom_err = 'not_ready'
         return False
 
+    if ctx.guild is not None and ctx.command.name in bot.d.disabled_cmds.get(ctx.guild.id, []):
+        ctx.custom_err = 'disabled'
+        return False
+
     bot.d.cmd_lb[ctx.author.id] = bot.d.cmd_lb.get(ctx.author.id, 0) + 1
     bot.d.cmd_count += 1
 
@@ -190,9 +196,13 @@ async def global_check(ctx):
             ctx.custom_err = 'econ_paused'
             return False
 
-        if random.randint(0, 40) == 1:  # spawn mob
+        if random.randint(1, 40) == 1:  # spawn mob
             if ctx.command._buckets._cooldown != None:  # if command has a cooldown on it
                 bot.d.spawn_queue[ctx] = arrow.utcnow()
+                return True
+
+    if random.randint(1, bot.d.tip_chance) == 1:
+        bot.loop.create_task(send_tip(ctx))
 
     return True
 

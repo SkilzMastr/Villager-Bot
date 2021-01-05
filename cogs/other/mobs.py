@@ -1,5 +1,5 @@
 from discord.ext import commands, tasks
-from util.misc import make_health_bar, make_health_bar_debug
+from util.misc import make_health_bar
 import classyjson as cj
 import asyncio
 import discord
@@ -11,10 +11,11 @@ import math
 class Mobs(commands.Cog):  # fuck I really don't want to work on this
     def __init__(self, bot):
         self.bot = bot
-        self.d = self.bot.d
 
-        self.db = self.bot.get_cog('Database')
-        self.events = self.bot.get_cog('Events')
+        self.d = bot.d
+
+        self.db = bot.get_cog('Database')
+        self.events = bot.get_cog('Events')
 
         self.spawn_events.start()
         self.clear_pauses.start()
@@ -23,10 +24,10 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
         self.spawn_events.cancel()
         self.clear_pauses.cancel()
 
-    @tasks.loop(seconds=30)
+    @tasks.loop(seconds=.75)
     async def clear_pauses(self):
         for uid in list(self.d.pause_econ):
-            if (arrow.utcnow() - self.d.pause_econ[uid]).seconds > 30:
+            if (arrow.utcnow() - self.d.pause_econ[uid]).seconds > 15:
                 self.d.pause_econ.pop(uid, None)
 
     def engage_check(self, m, ctx):
@@ -122,6 +123,7 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
             await embed_msg.edit(suppress=True)
 
             u_sword = await self.db.fetch_sword(u.id)
+            slime_trophy = await self.db.fetch_item(u.id, 'Slime Trophy')
 
             self.d.pause_econ[u.id] = arrow.utcnow()  # used later on to clear pause_econ based on who's been in there for tooo long
 
@@ -138,13 +140,13 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
 
                 embed.add_field(  # user health bar
                     name=f'**{u.display_name}**',
-                    value=make_health_bar_debug(u_health, 20, self.d.emojis.heart_full, self.d.emojis.heart_half, self.d.emojis.heart_empty),
+                    value=make_health_bar(u_health, 20, self.d.emojis.heart_full, self.d.emojis.heart_half, self.d.emojis.heart_empty),
                     inline=False
                 )
 
                 embed.add_field(  # mob health bar
                     name=f'**{mob.nice}**',
-                    value=make_health_bar_debug(
+                    value=make_health_bar(
                         mob.health,
                         mob_max_health,
                         self.d.emojis.heart_full,
@@ -162,6 +164,7 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
                     await msg.edit(suppress=True)
 
                     self.d.pause_econ.pop(u.id, None)
+                    await self.db.update_user(u.id, 'health', u_health)
 
                     await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.flee_insults))
 
@@ -171,6 +174,7 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
                     await msg.edit(suppress=True)
 
                     self.d.pause_econ.pop(u.id, None)
+                    await self.db.update_user(u.id, 'health', u_health)
 
                     await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.flee_insults))
 
@@ -179,22 +183,24 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
                 u_dmg = await self.calc_sword_damage(u.id, u_sword, diff_multi)  # calculate damage
 
                 if mob_key == 'baby_slime':
-                    if iteration < 3:
+                    if iteration < 3 and slime_trophy is None:
                         u_dmg = 0
-                    elif iteration >= 3 and random.choice((True, False)):
+                    elif slime_trophy is not None and random.choice((True, False, False,)):
+                        u_dmg = 0
+                    elif iteration >= 3 and random.choice((True, False,)):
                         u_dmg = 0
 
                 mob.health -= u_dmg
 
                 if mob.health < 1:  # user wins
                     self.d.pause_econ.pop(u.id, None)
-                    await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.user_finishers).format(mob.nice, u_sword))
+                    await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.user_finishers).format(mob.nice.lower(), u_sword.lower()))
                     break
                 else:
                     if mob_key == 'baby_slime' and u_dmg == 0:
-                        await self.bot.send(ctx, random.choice(mob.misses).format(u_sword))
+                        await self.bot.send(ctx, random.choice(mob.misses).format(u_sword.lower()))
                     else:
-                        await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.user_attacks).format(mob.nice.lower(), u_sword))  # user attack message
+                        await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.user_attacks).format(mob.nice.lower(), u_sword.lower()))  # user attack message
 
                 await asyncio.sleep(1)
 
@@ -243,14 +249,20 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
 
             embed.add_field(  # user health bar
                 name=f'**{u.display_name}**',
-                value=make_health_bar_debug((u_health if u_health >= 0 else 0), 20, self.d.emojis.heart_full, self.d.emojis.heart_half, self.d.emojis.heart_empty),
+                value=make_health_bar(
+                    (u_health if u_health >= 0 else 0),
+                    20,
+                    self.d.emojis.heart_full,
+                    self.d.emojis.heart_half,
+                    self.d.emojis.heart_empty
+                ),
                 inline=False
             )
 
             embed.add_field(  # mob health bar
                 name=f'**{mob.nice}**',
-                value=make_health_bar_debug(
-                    0,
+                value=make_health_bar(
+                    (mob.health if mob.health >= 0 else 0),
                     mob_max_health,
                     self.d.emojis.heart_full,
                     self.d.emojis.heart_half,
@@ -267,24 +279,34 @@ class Mobs(commands.Cog):  # fuck I really don't want to work on this
             u_bal = u_db['emeralds']
 
             if u_health > 0:  # user win
-                if diff == 'easy':  # copied this ~~meth~~ math from the old code idek what it does lmao
-                    ems_won = int(u_bal * (1 / random.choice((3, 3.25, 3.5, 3.75, 4)))) if u_bal < 256 else int(
-                        512 * (1 / random.choice((3, 3.25, 3.5, 3.75, 4))))
-                else:  # diff hard
-                    ems_won = int(u_bal * (1 / random.choice((1.75, 2, 2.25, 2.5)))) if u_bal < 256 else int(
-                        512 * (1 / random.choice((1.75, 2, 2.25, 2.5))))
+                if mob_key != 'baby_slime' or random.randint(0, 25) != 1:
+                    if diff == 'easy':  # copied this ~~meth~~ math from the old code idek what it does lmao
+                        ems_won = int(u_bal * (1 / random.choice((3, 3.25, 3.5, 3.75, 4)))) if u_bal < 256 else int(
+                            512 * (1 / random.choice((3, 3.25, 3.5, 3.75, 4))))
+                    else:  # diff hard
+                        ems_won = int(u_bal * (1 / random.choice((1.75, 2, 2.25, 2.5)))) if u_bal < 256 else int(
+                            512 * (1 / random.choice((1.75, 2, 2.25, 2.5))))
 
-                ems_won = int((ems_won if ems_won > 0 else 1) * diff_multi)
+                    ems_won = int((ems_won if ems_won > 0 else 1) * diff_multi)
 
-                if await self.db.fetch_item(u.id, 'Looting II') is not None:
-                    ems_won = int(ems_won * 1.75)
-                elif await self.db.fetch_item(u.id, 'Looting I') is not None:
-                    ems_won = int(ems_won * 1.25)
+                    if await self.db.fetch_item(u.id, 'Looting II') is not None:
+                        ems_won = int(ems_won * 1.75)
+                    elif await self.db.fetch_item(u.id, 'Looting I') is not None:
+                        ems_won = int(ems_won * 1.25)
 
-                await self.db.balance_add(u.id, ems_won)
-                await self.db.update_lb(u.id, 'mobs_killed', 1, 'add')
+                    await self.db.balance_add(u.id, ems_won)
+                    await self.db.update_lb(u.id, 'mobs_killed', 1, 'add')
 
-                await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.found).format(ems_won, self.d.emojis.emerald))
+                    await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.found).format(ems_won, self.d.emojis.emerald))
+                else:
+                    if diff == 'easy':
+                        balls_won = random.randint(1, 10)
+                    else:
+                        balls_won = random.randint(1, 20)
+
+                    await self.db.add_item(u.id, 'Slime Ball', 5, balls_won, True)
+
+                    await self.bot.send(ctx, random.choice(ctx.l.mobs_mech.found).format(balls_won, self.d.emojis.slimeball))
             else:  # mob win
                 if diff == 'easy':  # haha code copying go brrrrrrrrr
                     ems_lost = int(u_bal * (1 / (random.choice([3.05, 3.3, 3.55, 3.8])+.3))) if u_bal > 20 else random.randint(2, 4)

@@ -4,21 +4,24 @@ import classyjson as cj
 import aiohttp  # ~~aiohttp makes me ****~~
 import asyncio
 import discord
+import arrow
 
 
 class Webhooks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.d = self.bot.d
 
-        self.db = self.bot.get_cog('Database')
+        self.d = bot.d
+        self.k = bot.k
+
+        self.db = bot.get_cog('Database')
 
         self.ses = aiohttp.ClientSession()
         self.server_runner = None
         self.webhook_server = None
 
-        self.bot.loop.create_task(self.webhooks_setup())
-        self.bot.loop.create_task(self.update_stats())
+        bot.loop.create_task(self.webhooks_setup())
+        bot.loop.create_task(self.update_stats())
 
     def cog_unload(self):
         self.bot.loop.create_task(self.server_runner.cleanup())
@@ -30,7 +33,7 @@ class Webhooks(commands.Cog):
             try:
                 await self.ses.post(
                     f'https://top.gg/api/bots/{self.bot.user.id}/stats',
-                    headers={'Authorization': self.d.topgg_post_auth},
+                    headers={'Authorization': self.k.topgg_api},
                     json={'server_count': str(len(self.bot.guilds))}
                 )
             except Exception as e:
@@ -40,7 +43,7 @@ class Webhooks(commands.Cog):
 
     async def webhooks_setup(self):  # holy fucking shit that's hot
         async def handler(req):
-            if req.headers.get('Authorization') == self.d.topgg_hooks_auth:
+            if req.headers.get('Authorization') == self.k.topgg_webhook:
                 self.bot.dispatch('topgg_event', cj.classify(await req.json()))
             else:
                 return web.Response(status=401)
@@ -57,7 +60,7 @@ class Webhooks(commands.Cog):
         self.webhook_server = web.TCPSite(self.server_runner, '0.0.0.0', self.d.hooksport)
         await self.webhook_server.start()
 
-    async def reward(self, user_id, amount):
+    async def reward(self, user_id, amount, streak=None):
         await self.db.balance_add(user_id, amount)
 
         user = self.bot.get_user(user_id)
@@ -67,7 +70,10 @@ class Webhooks(commands.Cog):
 
         if user is not None:
             try:
-                await user.send(f'Thanks for voting! You\'ve received **{amount}**{self.d.emojis.emerald}!')
+                if streak is None:
+                    await self.bot.send(user, f'Thanks for voting! You\'ve received **{amount}**{self.d.emojis.emerald}!')
+                else:
+                    await self.bot.send(user, f'Thanks for voting! You\'ve received **{amount}**{self.d.emojis.emerald}! (Vote streak is now {streak})')
             except Exception:
                 pass
 
@@ -80,20 +86,38 @@ class Webhooks(commands.Cog):
 
         uid = int(data.user)
 
-        self.bot.logger.info(f'\u001b[32;1m{uid} voted on top.gg\u001b[0m DEBUG/TESTING: {data}')
+        self.bot.logger.info(f'\u001b[32;1m{uid} voted on top.gg\u001b[0m')
         self.d.votes_topgg += 1
 
-        amount = self.d.topgg_reward * self.d.base_multi
+        amount = self.d.topgg_reward
 
         if data.isWeekend:
-            amount *= self.d.weekend_multi
+            amount *= 2
 
-        amount *= len(self.d.mining.pickaxes) - self.d.mining.pickaxes.index(await self.db.fetch_pickaxe(int(data.user)))
-
-        await self.reward(uid, amount)
+        amount *= len(self.d.mining.pickaxes) - self.d.mining.pickaxes.index(await self.db.fetch_pickaxe(uid))
 
         db_user = await self.db.fetch_user(uid)
-        await self.db.update_user(uid, 'topgg_votes', db_user['topgg_votes']+1)
+
+        streak_time = db_user['streak_time']
+        vote_streak = db_user['vote_streak']
+
+        if vote_streak is None or vote_streak is 0:
+            vote_streak = 0
+
+        vote_streak += 1
+
+        if streak_time is None:  # time
+            streak_time = 0
+
+        if arrow.utcnow().shift(days=-1, minutes=-10) > arrow.get(streak_time):  # vote expired
+            vote_streak = 1
+
+        amount *= (5 if vote_streak > 5 else vote_streak)
+
+        await self.db.update_user(uid, 'streak_time', arrow.utcnow().timestamp)
+        await self.db.update_user(uid, 'vote_streak', vote_streak)
+
+        await self.reward(uid, amount, vote_streak)
 
 
 def setup(bot):

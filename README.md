@@ -2,6 +2,7 @@
 [![Bot Status](https://top.gg/api/widget/status/639498607632056321.svg?noavatar=true)](https://top.gg/bot/639498607632056321)
 [![Server Count](https://top.gg/api/widget/servers/639498607632056321.svg?noavatar=true)](https://top.gg/bot/639498607632056321)
 [![Support Server](https://img.shields.io/discord/641117791272960031?color=51B780&label=Discord%20Server)](https://discord.gg/39DwwUV)
+[![Views](https://api.ghprofile.me/view?username=villager-dev.villager-bot&color=51B780&label=Views&style=flat)](https://github.com/Villager-Dev/Villager-Bot)
 
 ## Notable Features
 * Ability to generate Minecraft pixel art from images sent in the chat
@@ -19,7 +20,7 @@
 If a bug or unintended behavior is discovered, please report it by creating an issue [here](https://github.com/Villager-Dev/Villager-Bot/issues) or by reporting it in the **#bug-smasher** channel on the [support server](https://discord.gg/39DwwUV)
 
 ### Development
-If you'd like to contribute code to Villager Bot, then please fork the repository and make any necessary changes there. Then, [make a pull request](https://github.com/Villager-Dev/Villager-Bot/pulls) and it will be reviewed.
+If you'd like to contribute code to Villager Bot, then please fork the repository and make any necessary changes there. Then, [make a pull request](https://github.com/Villager-Dev/Villager-Bot/pulls) and it will be reviewed. Please read the [contribution guidelines](https://github.com/Villager-Dev/Villager-Bot/blob/master/CONTRIBUTING.md) before making changes.
 
 ## Commands
 ### Economy
@@ -30,7 +31,7 @@ If you'd like to contribute code to Villager Bot, then please fork the repositor
 * `/withdraw <emerald blocks>` *withdraw emeralds from the vault*
 * `/give <user> <amount> <item>` *give another user an item or emeralds*
 * `/mine` *mine for emeralds*
-* `/beg` *beg for emeralds*
+* `/search` *search for emeralds*
 * `/honey` *harvest honey from the bees you own*
 * `/gamble <emeralds>` *gamble with the bot for a chance of winning emeralds*
 * `/pillage <user>` *pillage emeralds from another user*
@@ -44,12 +45,11 @@ If you'd like to contribute code to Villager Bot, then please fork the repositor
 * `/mcstatus [optional: server]` *checks the status of any type of Minecraft server*
 * `/randommc` *shows a random Minecraft server if you want a new place to explore*
 * `/mcimage` *turns whatever image you upload into Minecraft blocks / pixel art*
+* `/rcon <command>` *executes commands on a Minecraft server from Discord*
 * `/stealskin <username>` *fetches the skin of a Minecraft Java Edition player*
-* `/achievement <text>` *generates a Minecraft achievement from the given text*
 * `/buildidea` *sends a random build idea for if you're bored and need inspiration*
 * `/mccolors` *shows the Minecraft colors and how to use them in the ingame chat*
-* `/nametouuid <username>` *turns a MC Java Edition username into a uuid*
-* `/uuidtoname <uuid>` *turns a MC Java Edition uuid into a username*
+* `/mcprofile <username>` *shows information on a Minecraft Java Edition player*
 * `/nametoxuid <username>` *turns an MC Bedrock Edition gamertag into an xuid*
 
 ### Utility
@@ -59,13 +59,10 @@ If you'd like to contribute code to Villager Bot, then please fork the repositor
 * `/server` *view information about the current server*
 * `/links` *view useful links relating to Villager Bot*
 * `/vote` *earn emeralds from voting for Villager Bot on certain websites*
-* `/info` *view information about Villager Bot*
 * `/stats` *shows statistics about Villager Bot*
-* `/uptime` *view how long the bot has been online*
 * `/google <search>` *searches on google for your query*
 * `/youtube <search>` *searches on youtube for your query*
 * `/image <search>` *searches google images for your query*
-* `/aliases <command>` *shows the aliases of that command*
 
 ### Fun
 * `/cursed` *sends a random cursed Minecraft image*
@@ -84,7 +81,9 @@ If you'd like to contribute code to Villager Bot, then please fork the repositor
 * `/kill <user>` *brutally murder another user*
 * `/bubblewrap` *sends virtual bubblewrap for you to pop*
 * `/coinflip` *flips a coin and says the result in the chat*
-* `/pat <thing>` *pats the mentioned user or thing*
+* `/pat <user>` *brutally pat someone on the head*
+* `/achievement <text>` *generates a Minecraft achievement from the given text*
+* `/splashtext <text>` *generates a Minecraft splash screen with the given text*
 
 ### Moderation
 * `/warn <user> <reason>` *warn a user for a specified reason*

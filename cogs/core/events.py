@@ -8,9 +8,10 @@ import random
 class Events(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.d = self.bot.d
 
-        self.db = self.bot.get_cog('Database')
+        self.d = bot.d
+
+        self.db = bot.get_cog('Database')
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -25,8 +26,8 @@ class Events(commands.Cog):
             if 'general' in channel.name:
                 embed = discord.Embed(
                     color=self.d.cc,
-                    description='Hey ya\'ll! Type `/help` to get started with Villager Bot!\n'
-                                'If you need any more help, check out the **[Support Server]({self.d.support})**!'
+                    description='Hey y\'all! Type `/help` to get started with Villager Bot!\n'
+                                f'If you need any more help, check out the **[Support Server]({self.d.support})**!'
                 )
 
                 embed.set_author(name='Villager Bot', icon_url=self.d.splash_logo)
@@ -81,7 +82,7 @@ class Events(commands.Cog):
                         elif 'creeper' in m.content.lower():
                             if (await self.db.fetch_guild(m.guild.id))['replies']:
                                 await m.channel.send('awww{} man'.format(random.randint(1, 5)*'w'))
-                        elif 'reee' in m.content.lower():
+                        elif 'reee' in m.content.lower().replace(' ', ''):
                             if (await self.db.fetch_guild(m.guild.id))['replies']:
                                 await m.channel.send(random.choice(self.d.emojis.reees))
                         else:
@@ -89,67 +90,92 @@ class Events(commands.Cog):
         except discord.errors.Forbidden:
             pass
 
-    async def debug_error(self, ctx, e):
+    async def debug_error(self, ctx, e, loc=None):
+        if loc is None:
+            loc = self.bot.get_channel(self.d.error_channel_id)
+
         traceback_text = ''.join(traceback.format_exception(type(e), e, e.__traceback__, 4))
         final = f'{ctx.author}: {ctx.message.content}\n\n{traceback_text}'.replace('``', '\`\`\`')
-        await self.bot.send(self.bot.get_channel(self.d.error_channel_id), f'```{final[:1023 - 6]}```')
+
+        await self.bot.send(loc, f'```py\n{final[:1023 - 6]}```')
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, e):
-        # errors to ignore
-        for e_type in (commands.CommandNotFound, commands.NotOwner, discord.errors.Forbidden,):
-            if isinstance(e, e_type) or isinstance(e.__dict__.get('original'), e_type):
+        try:
+            if isinstance(e, commands.CommandOnCooldown):
+                if ctx.command.name == 'mine':
+                    if await self.db.fetch_item(ctx.author.id, 'Efficiency I Book') is not None:
+                        e.retry_after -= .5
+
+                    if 'haste ii potion' in self.d.chuggers.get(ctx.author.id, []):
+                        e.retry_after -= 1
+                    elif 'haste i potion' in self.d.chuggers.get(ctx.author.id, []):
+                        e.retry_after -= .5
+
+                seconds = round(e.retry_after, 2)
+
+                if seconds <= .05:
+                    await ctx.reinvoke()
+                    return
+
+                hours = int(seconds / 3600)
+                minutes = int(seconds / 60) % 60
+                seconds -= round((hours * 60 * 60) + (minutes * 60), 2)
+
+                time = ''
+
+                if hours == 1:
+                    time += f'{hours} {ctx.l.misc.time.hour}, '
+                elif hours > 0:
+                    time += f'{hours} {ctx.l.misc.time.hours}, '
+
+
+                if minutes == 1:
+                    time += f'{minutes} {ctx.l.misc.time.minute}, '
+                elif minutes > 0:
+                    time += f'{minutes} {ctx.l.misc.time.minutes}, '
+
+                if seconds == 1:
+                    time += f'{round(seconds, 2)} {ctx.l.misc.time.second}'
+                elif seconds > 0:
+                    time += f'{round(seconds, 2)} {ctx.l.misc.time.seconds}'
+
+                await self.bot.send(ctx, random.choice(ctx.l.misc.cooldown_msgs).format(time))
+            elif isinstance(e, commands.NoPrivateMessage):
+                await self.bot.send(ctx, ctx.l.misc.errors.private)
+            elif isinstance(e, commands.MissingPermissions):
+                await self.bot.send(ctx, ctx.l.misc.errors.user_perms)
+            elif isinstance(e, commands.BotMissingPermissions):
+                await self.bot.send(ctx, ctx.l.misc.errors.bot_perms)
+            elif isinstance(e, commands.MaxConcurrencyReached):
+                await self.bot.send(ctx, ctx.l.misc.errors.concurrency)
+            elif isinstance(e, commands.MissingRequiredArgument):
+                await self.bot.send(ctx, ctx.l.misc.errors.missing_arg)
+            elif isinstance(e, (commands.BadArgument, commands.errors.UnexpectedQuoteError, commands.errors.ExpectedClosingQuoteError, commands.errors.BadUnionArgument)):
+                await self.bot.send(ctx, ctx.l.misc.errors.bad_arg)
+            elif ctx.__dict__.get('custom_err') == 'not_ready':
+                await self.bot.send(ctx, ctx.l.misc.errors.not_ready)
+            elif ctx.__dict__.get('custom_err') == 'bot_banned':
+                pass
+            elif ctx.__dict__.get('custom_err') == 'econ_paused':
+                await self.bot.send(ctx, ctx.l.misc.errors.nrn_buddy)
+            elif ctx.__dict__.get('custom_err') == 'disabled':
+                await self.bot.send(ctx, ctx.l.misc.errors.disabled)
+            elif ctx.__dict__.get('custom_err') == 'ignore':
                 return
+            else:
+                # errors to ignore
+                for e_type in (commands.CommandNotFound, commands.NotOwner, discord.errors.Forbidden,):
+                    if isinstance(e, e_type) or isinstance(e.__dict__.get('original'), e_type):
+                        return
 
-        if isinstance(e, commands.CommandOnCooldown):
-            if ctx.command.name == 'mine':
-                if await self.db.fetch_item(ctx.author.id, 'Efficiency I Book') is not None:
-                    e.retry_after -= .5
-
-                if 'Haste II Potion' in self.d.chuggers.get(ctx.author.id, []):
-                    e.retry_after -= 1
-                elif 'Haste I Potion' in self.d.chuggers.get(ctx.author.id, []):
-                    e.retry_after -= .5
-
-            seconds = round(e.retry_after, 2)
-
-            if seconds <= .05:
-                await ctx.reinvoke()
-                return
-
-            hours = int(seconds / 3600)
-            minutes = int(seconds / 60) % 60
-            seconds -= round((hours * 60 * 60) + (minutes * 60), 2)
-
-            time = ''
-            if hours > 0: time += f'{hours} hours, '
-            if minutes > 0: time += f'{minutes} minutes, '
-            time += f'{round(seconds, 2)} seconds'
-
-            await self.bot.send(ctx, random.choice(ctx.l.misc.cooldown_msgs).format(time))
-        elif isinstance(e, commands.NoPrivateMessage):
-            await self.bot.send(ctx, ctx.l.misc.errors.private)
-        elif isinstance(e, commands.MissingPermissions):
-            await self.bot.send(ctx, ctx.l.misc.errors.user_perms)
-        elif isinstance(e, commands.BotMissingPermissions):
-            await self.bot.send(ctx, ctx.l.misc.errors.bot_perms)
-        elif isinstance(e, commands.MaxConcurrencyReached):
-            await self.bot.send(ctx, ctx.l.misc.errors.concurrency)
-        elif isinstance(e, commands.MissingRequiredArgument):
-            await self.bot.send(ctx, ctx.l.misc.errors.missing_arg)
-        elif isinstance(e, commands.BadArgument) or isinstance(e, commands.errors.ExpectedClosingQuoteError) or isinstance(e, commands.errors.BadUnionArgument):
-            await self.bot.send(ctx, ctx.l.misc.errors.bad_arg)
-        elif ctx.__dict__.get('custom_err') == 'not_ready':
-            await self.bot.send(ctx, ctx.l.misc.errors.not_ready)
-        elif ctx.__dict__.get('custom_err') == 'bot_banned':
+                await self.bot.send(ctx, ctx.l.misc.errors.andioop.format(self.d.support))
+                await self.debug_error(ctx, e)
+        except discord.errors.Forbidden:
             pass
-        elif ctx.__dict__.get('custom_err') == 'econ_paused':
-            await self.bot.send(ctx, ctx.l.misc.errors.nrn_buddy)
-        elif ctx.__dict__.get('custom_err') == 'ignore':
-            return
-        else:
-            await self.bot.send(ctx, ctx.l.misc.errors.andioop.format(self.d.support))
-            await self.debug_error(ctx, e)
+        except Exception as e:
+            if not isinstance(e.__dict__.get('original'), discord.errors.Forbidden):
+                await self.debug_error(ctx, e)
 
 
 def setup(bot):

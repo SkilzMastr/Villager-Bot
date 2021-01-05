@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS guilds (
   difficulty     varchar(15), -- difficulty for mob spawns and other things
   lang           varchar(10), -- language used leave null for en-us
   mcserver       varchar(50), -- default mcserver for the /mcstatus command
-  mcserver_rcon  int -- rcon port for the mc server
+  premium        bool
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -14,8 +14,10 @@ CREATE TABLE IF NOT EXISTS users (
   vault_bal     int, -- amount of emerald BLOCKS which are currently in the vault
   vault_max     int, -- maximum amount of emerald BLOCKS which can be stored in the vault
   health        int, -- user health, out of 20
-  topgg_votes   int, -- votes on top.gg
-  bot_banned    bool -- is banned from using the bot
+  bot_banned    bool, -- is banned from using the bot
+  vote_streak   int,
+  streak_time   bigint,
+  give_alert    bool -- whether to tell user if someone gave em stuff or not
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -51,7 +53,19 @@ CREATE TABLE IF NOT EXISTS mcservers ( -- used in /randommc command
   owner_id bigint, -- discord owner id of the server
   host     varchar(100), -- hostname/ip/address of server
   link     varchar(250) -- learn more link
-)
+);
+
+CREATE TABLE IF NOT EXISTS disabled (
+  gid bigint,
+  cmd varchar(20)
+);
+
+CREATE TABLE IF NOT EXISTS user_rcon (
+  uid       bigint,
+  mcserver  varchar(50),
+  rcon_port int,
+  password  varchar(300)
+);
 
 -- CREATE TABLE IF NOT EXISTS mc_servers( -- used for the !!randommc command
 --   owner_id bigint, -- discord user id of the owner
